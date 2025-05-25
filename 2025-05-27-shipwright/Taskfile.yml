@@ -1,0 +1,53 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  BUILD: cnb-build
+  STRATEGY: ko
+  IMAGE: ghcr.io/rxinui/cnb:latest
+
+tasks:
+  default:
+    cmds:
+      - echo "Shipwright live demo for Cloud Native Bergen"
+      - echo "with Strategy={{.STRATEGY}} Build={{.BUILD}} Image={{.IMAGE}}"
+    silent: true
+  teardown:
+    silent: true
+    ignore_error: true
+    cmds:
+      - kubectl shp build delete "{{.BUILD}}"
+      - kubectl delete --force -f ./strategy.yaml
+      - kubectl delete pods --all -n default
+      - docker rmi --force {{.IMAGE}}
+      - podman rmi --force {{.IMAGE}}
+      - for r in $(kubectl get buildruns.shipwright.io -ojsonpath="{.items[*].metadata.name}"); do kubectl delete buildruns.shipwright.io --force "$r"; done
+
+  create-strategy:
+    cmds:
+      - kubectl apply --force -f ./strategy.yaml
+
+  create-build:
+    cmds:
+      - |
+         kubectl shp build create "{{.BUILD}}" \
+           --output-image="ghcr.io/rxinui/cnb:latest" \
+           --source-git-url="git@github.com:rxinui/talks.git" \
+           --source-context-dir="2025-05-27-shipwright/cmd" \
+           --source-git-clone-secret="ssh-auth" \
+           --strategy-kind="ClusterBuildStrategy" \
+           --strategy-name="{{.STRATEGY}}" \
+           --output-image-push-secret="ghcr"
+           
+  run-build:
+    cmds:
+      - kubectl shp build run {{.BUILD}} --param-value go-flags="\"-ldflags=-X main.buildSha=$(git rev-parse HEAD)\""
+
+  autorun:
+    cmds:
+      - task: teardown
+      - task: create-strategy
+      - task: create-build
+      - task: run-build
+    
